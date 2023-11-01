@@ -10,7 +10,7 @@ function pred_headmap(predmat; clust::Bool=true, axargs...)
         xclus = axes(predmat, 1)
         yclus = axes(predmat, 2)
     end
-    fig = Figure(resolution = ((20, 30) .* size(predmat) .+ (450, 400)))
+    fig = Figure(resolution = ((30, 20) .* size(predmat) .+ (500, 400)))
     ax = Axis(fig[1,1]; axargs...)
     hmp = heatmap!(ax, predmat[xclus, yclus])
     Colorbar(fig[1,2], hmp, label = "Prediction score")
