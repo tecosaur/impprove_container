@@ -43,20 +43,20 @@ ADD https://github.com/brentp/slivar/releases/download/v0.3.0/slivar slivar
 RUN chmod +x slivar
 RUN cp slivar /usr/local/bin
 
-COPY bcftools.jl bcftools.jl
+COPY src/bcftools.jl bcftools.jl
 RUN julia --project=/ bcftools.jl
 RUN chmod +x bcftools
 RUN cp bcftools /usr/local/bin
 
-COPY apply.jl apply.jl
-COPY apply_lib.jl apply_lib.jl
-COPY render_lib.jl render_lib.jl
+COPY src/apply.jl apply.jl
+COPY src/apply_lib.jl apply_lib.jl
+COPY src/render_lib.jl render_lib.jl
 RUN _JL_DOCKER_PRERUN=1 julia -Jsysimage.so --project=. apply.jl
 
 COPY README.txt README
-COPY mini-readme.txt mini-readme.txt
-COPY sample.vcf sample.vcf
+COPY src/mini-readme.txt mini-readme.txt
+COPY src/sample.vcf sample.vcf
 
-COPY entrypoint.sh entrypoint.sh
+COPY src/entrypoint.sh entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
