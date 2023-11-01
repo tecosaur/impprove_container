@@ -245,6 +245,16 @@ for (i, vcf) in enumerate(VCF_FILES)
     good_preds_df.prediction = good_preds
     CSV.write(joinpath("/predictions", basename(vcf), "wmean-good-prediction.csv"),
               good_preds_df)
+
+    # Mini-readme
+    mini_readme = replace(read("/mini-readme.txt", String),
+                            "{%infile%}" => basename(vcf))
+    write(joinpath("/predictions", basename(vcf), "README.txt"),
+          mini_readme)
+end
+
+if startswith(first(DEPOT_PATH), tempdir())
+    rm(first(DEPOT_PATH), recursive=true, force=true)
 end
 
 @info "Done"

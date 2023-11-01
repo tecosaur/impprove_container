@@ -54,6 +54,7 @@ COPY render_lib.jl render_lib.jl
 RUN _JL_DOCKER_PRERUN=1 julia -Jsysimage.so --project=. apply.jl
 
 COPY README.txt README
+COPY mini-readme.txt mini-readme.txt
 COPY sample.vcf sample.vcf
 
 COPY entrypoint.sh entrypoint.sh
