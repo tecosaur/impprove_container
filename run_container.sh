@@ -89,8 +89,11 @@ The \e[34m--info\e[m passed to slivar can be customised by providing your own va
         shift
     done
     # Check for mandatory options
-    if [ -z "$input_file" ] || [ -z "$output_file" ]; then
-        printf "\e[31mError:\e[m Mandatory options -i INFILE.VCF and -o OUTFILE.VCF are required.\n"
+    if [ -z "$input_file" ]; then
+        printf "\e[31mError:\e[m Mandatory options \e[33m-i INFILE.VCF\e[m and -o OUTFILE.VCF are required.\n"
+        exit 1
+    elif [ -z "$output_file" ]; then
+        printf "\e[31mError:\e[m Mandatory options -i INFILE.VCF and \e[33m-o OUTFILE.VCF\e[m are required.\n"
         exit 1
     fi
     if [ ! -f "$input_file" ]; then
@@ -210,8 +213,11 @@ The \e[34m-i\e[m argument can also point to a folder of VCF files.
         shift
     done
     # Check for mandatory options
-    if [ -z "$input_file" ] || [ -z "$output_folder" ]; then
-        printf "\e[31mError:\e[m Mandatory options -i INFILE.VCF and -o OUTFILE.VCF are required.\n" >&2
+    if [ -z "$input_file" ]; then
+        printf "\e[31mError:\e[m Mandatory options \e[33m-i INFILE.VCF\e[m and -o OUTFOLDER are required.\n" >&2
+        exit 1
+    elif [ -z "$output_folder" ]; then
+        printf "\e[31mError:\e[m Mandatory options -i INFILE.VCF and \e[33m-o OUTFOLDER\e[m are required.\n" >&2
         exit 1
     fi
     if [ ! -e "$input_file" ]; then
