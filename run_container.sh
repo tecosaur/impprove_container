@@ -52,7 +52,7 @@ When using Ensembl identifiers, supply the \e[34m-e\e[m flag.
 
 It is equivalent to running:
     bcftools csq --samples - --ncsq 40 --gff-annot $annot_data_file --local-csq --fasta-ref $genome_data $vcf_input_file --output-type u |
-    slivar expr --vcf - -g $gnomad_data_file --info ''INFO.impactful && INFO.gnomad_popmax_af < 0.01 && variant.QUAL >= 20 && variant.ALT[0] != "*"'' -o $outfile
+    slivar expr --vcf - -g $gnomad_data_file --info '"'"'INFO.impactful && INFO.gnomad_popmax_af < 0.01 && variant.QUAL >= 20 && variant.ALT[0] != "*"'"'"' -o $outfile
 
 The \e[34m--info\e[m passed to slivar can be customised by providing your own value.
 ' "$(basename "$0")"
