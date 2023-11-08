@@ -3,7 +3,7 @@ LABEL maintainer="Timothy <timothy.chapman@telethonkids.org.au>"
 
 RUN apt-get update \
     && apt-get -y install --no-install-recommends \
-        gfortran gcc g++ \
+        gfortran gcc g++ tabix \
     && rm -rf /var/lib/apt/lists/*
 
 # We will put everything under the root directory '/'
@@ -48,12 +48,18 @@ RUN julia --project=/ bcftools.jl
 RUN chmod +x bcftools
 RUN cp bcftools /usr/local/bin
 
+COPY liftover liftover
+RUN julia --project=liftover -e 'using Pkg; Pkg.instantiate()'
+RUN julia --project=liftover -e 'using CondaPkg; CondaPkg.resolve()'
+ENV JULIA_CONDAPKG_OFFLINE=yes
+RUN ln -s /data/liftover liftover/data
+
 COPY src/apply.jl apply.jl
 COPY src/apply_lib.jl apply_lib.jl
 COPY src/render_lib.jl render_lib.jl
 RUN _JL_DOCKER_PRERUN=1 julia -Jsysimage.so --project=. apply.jl
 
-COPY README.txt README
+COPY README.org README
 COPY src/mini-readme.txt mini-readme.txt
 COPY src/sample.vcf sample.vcf
 

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 escval() {
     printf \'
@@ -18,18 +18,15 @@ escval() {
     printf \'
 }
 
-occursin() {
-    if [ "$1" = -i ] ; then
-        case ${3,,} in
-            *${2,,}*) return 0;;
-            *) return 1;;
+contains() {
+    target=$1
+    shift
+    for pattern in "$@"; do
+        case $target in
+            *$pattern*) return 0;;
         esac
-    else
-        case $2 in
-            *$1*) return 0;;
-            *) return 1;;
-        esac
-    fi
+    done
+    return 1
 }
 
 _impprove_container_runtime() {
@@ -186,14 +183,14 @@ The \e[34m--info\e[m passed to slivar can be customised by providing your own va
     exitcode=$?
     if [ $exitcode -ne 0 ]; then
         printf "\e[33m(could not locate reference header in VCF)\e[m " >&2
-    elif occursin -i "hg38" "$reference"; then
+    elif contains "$reference" "hg38" "Hg38" "HG38"; then
         :
-    elif occursin -i "grch38" "$reference"; then
+    elif contains "$reference" "grch38" "Grch38" "GRCh38" "GRCH38"; then
         :
-    elif occursin -i "hg19" "$reference"; then
+    elif contains "$reference" "hg19" "Hg19" "HG19"; then
         printf "\e[33m(seems to be using Hg19, not Hg38)\e[m " >&2
         checkref=true
-    elif occursin -i "grch37" "$reference"; then
+    elif contains "$reference" "grch37" "Grch37" "GRCh37" "GRCH37"; then
         printf "\e[33m(seems to be using GRCh37, not GRCh38)\e[m " >&2
         checkref=true
     else
@@ -203,19 +200,20 @@ The \e[34m--info\e[m passed to slivar can be customised by providing your own va
     if $checkref; then
         num_records=$(_impprove_container_exec "$runtime" \
             "$basefolder/data:/data" "$tempdir:/workdir" -- \
-            bcftools stats "/workdir/$(basename "$input_file")")
+            bcftools stats "/workdir/$(basename "$input_file")" 2>&1 |
+                   grep "number of records:")
         num_records="${num_records##*number of records:	}"
         num_mismatch=$(_impprove_container_exec "$runtime" \
             "$basefolder/data:/data" "$tempdir:/workdir" -- \
             bcftools norm --check-ref w --fasta-ref /data/Hg38p14.fa \
-            "/workdir/$(basename "$input_file")" | grep -c "REF_MISMATCH")
-        if [ $(("$num_mismatch" + "$num_mismatch")) -gt "$num_records" ]; then
-            printf '\n \e[1;31m!\e[m More than half of the variants do not match \
-                the Hg38 reference genome. Is is likely the input VCF is built against \
-                an older reference genome. If it uses Hg19/GRCh37 you can use the \
-                \e[36mliftover\e[m subcommand to lift it to Hg38 like so:\n  \
-                %s liftover %s %s.hg38\n\
-                Then try again.' "$(basename "$0")" "$input_file" "$in"
+            "/workdir/$(basename "$input_file")" 2>&1 | grep -c "REF_MISMATCH")
+        if [ "$(("$num_mismatch" + "$num_mismatch"))" -gt "$num_records" ]; then
+            printf "\n \e[1;31m!\e[m More than half of the variants do not match \
+the Hg38 reference genome (%s out of %s). It is likely the input VCF is built against \
+an older reference genome. If the VCF uses Hg19/GRCh37 you can use the \
+\e[36mliftover\e[m subcommand to lift it to Hg38 like so:\n\n  \
+%s liftover -i %s -o %s.hg38.vcf\n\n\
+Then try again.\n" "$num_mismatch" "$num_records" "$(basename "$0")" "$input_file" "${input_file%.vcf}"
             return 18
         fi
     fi
@@ -420,7 +418,7 @@ be lifted over) to OUTFILE.VCF.rej if \e[36mREJFILE.VCF\e[m is not specified.
         "$basefolder/data:/data" "$tempdir:/workdir" -- \
         "/liftover/liftover.jl" "$hg_from" "$hg_to" \
         "/workdir/$(basename "$input_file")" "/workdir/lifted.vcf" \
-        "/workdir/rej.vcf" &>>"$logfile"
+        "/workdir/rej.vcf" >>"$logfile"
     exitcode=$?
     if [ $exitcode -ne 0 ]; then
         printf '\e[31mexit code %s\e[m\n  See the logfile %s for more information\n' "$exitcode" "$logfile" >&2
@@ -460,7 +458,7 @@ elif [ -z "$1" ]; then
     printf '
     %s liftover|filter|predict [args...]
 
-Either liftover an Hg19 VCF to Hg38, filter a VCF file in preperation for
+Either liftover an Hg19 VCF to Hg38, filter a VCF file in preparation for
 prediction, or create predictions from a VCF file. See the \e[34mliftover\e[m,
 \e[34mfilter\e[m, and \e[34mpredict\e[m subcommand'"'"'s help for more
 information.
