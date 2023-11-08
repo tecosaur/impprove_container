@@ -1,0 +1,12 @@
+
+[deps.bcftools]
+channel = "bioconda"
+version = "=1.17"
+
+[deps.htslib]
+channel = "bioconda"
+version = "=1.17"
+
+[deps.gatk4]
+channel = "bioconda"
+version = "=4.4.0.0"

@@ -1,5 +1,37 @@
 #!/bin/sh
 
+escval() {
+    printf \'
+    unescaped=$1
+    while :
+    do
+        case $unescaped in
+        *\'*)
+            printf %s "${unescaped%%\'*}""'\''"
+            unescaped=${unescaped#*\'}
+            ;;
+        *)
+            printf %s "$unescaped"
+            break
+        esac
+    done
+    printf \'
+}
+
+occursin() {
+    if [ "$1" = -i ] ; then
+        case ${3,,} in
+            *${2,,}*) return 0;;
+            *) return 1;;
+        esac
+    else
+        case $2 in
+            *$1*) return 0;;
+            *) return 1;;
+        esac
+    fi
+}
+
 _impprove_container_runtime() {
     if [ -n "$IMPPROVE_CONTAINER_RUNTIME" ]; then
         if command -v "$IMPPROVE_CONTAINER_RUNTIME" 1>/dev/null; then
@@ -28,6 +60,46 @@ _impprove_container_bindarg() {
         printf '%s' "-v"
     elif  [ "$1" = "apptainer" ] || [ "$1" = "singularity" ]; then
         printf '%s' "-B"
+    fi
+}
+
+_impprove_container_exec() {
+    runtime=""
+    bind=""
+    donebinds=false
+    doneexec=false
+    for arg in "$@"; do
+        if [ -z "$runtime" ]; then
+            set --
+            runtime="$arg"
+            bind="$(_impprove_container_bindarg "$runtime")"
+        elif ! $donebinds && [ "$arg" = "--" ]; then
+            donebinds=true
+        elif $donebinds && ! $doneexec; then
+            doneexec=true
+            if [ "$runtime" = "podman" ] || [ "$runtime" = "docker" ]; then
+                set -- "$@" '--entrypoint' "$arg" 'localhost/apply-impprove'
+            elif [ "$runtime" = "apptainer" ] || [ "$runtime" = "singularity" ]; then
+                set -- "$@" 'exec' 'apply-impprove.sif' "$arg"
+            else
+              :
+            fi
+        elif ! $donebinds; then
+            set -- "$@" "$bind" "$arg"
+        else
+          set -- "$@" "$arg"
+        fi
+    done
+    printf '\n\nruntime: %s\n\n' "$runtime"
+    if [ "$runtime" = "podman" ] || [ "$runtime" = "docker" ]; then
+        echo "$runtime run $*"
+        "$runtime" run "$@"
+    elif [ "$runtime" = "apptainer" ] || [ "$runtime" = "singularity" ]; then
+        echo "$runtime $*"
+        "$runtime" "$@"
+    else
+      printf ' \e[1;31m!\e[m Container runtime \e[31m%s\e[m is not supported\n' "$runtime" >&2
+      return 17
     fi
 }
 
@@ -104,73 +176,82 @@ The \e[34m--info\e[m passed to slivar can be customised by providing your own va
     cp "$input_file" "$tempdir"
     basefolder="$(dirname "$(realpath -s "$0")")"
     runtime="$(_impprove_container_runtime)"
-    bind="$(_impprove_container_bindarg "$runtime")"
     logfile="$tempdir/log.txt"
-    didlogproblem=false
-    set -- "$bind" "$basefolder/data:/data" "$bind" "$tempdir:/workdir"
     printf '[\e[33m%s\e[m] ' "$runtime" >&2
-    if [ "$runtime" = "podman" ] || [ "$runtime" = "docker" ]; then
-        printf "Running bcftools... "
-        printf ':: BCFTOOLS ::\n' > "$logfile"
-        $runtime run "$@" --entrypoint="bcftools" localhost/apply-impprove \
-            csq --samples - \
-            --ncsq 40 --gff-annot "/data/$annotfile" --local-csq \
-            --fasta-ref "/data/$genomefile" "/workdir/$(basename "$input_file")" \
-            --output-type u -o "/workdir/intermediate.bcf" \
-            2>>"$logfile"
-        exitcode=$?
-        if [ $exitcode -ne 0 ]; then
-            printf '\e[31mexit code %s\e[m\n  See the logfile %s for more information\n' "$exitcode" "$logfile" >&2
-            didlogproblem=true
-        fi
-        printf "slivar... "
-        printf '\n\n:: SLIVAR ::\n' >> "$logfile"
-        $runtime run "$@" --entrypoint="slivar" localhost/apply-impprove \
-            expr --vcf "/workdir/intermediate.bcf" \
-            -g "/data/$gnomadfile" --info "$sinfo" \
-            -o "/workdir/outfile.vcf" \
-            2>>"$logfile"
-        exitcode=$?
-        if [ $exitcode -ne 0 ]; then
-            printf '\e[31mexit code %s\e[m\n  See the logfile %s for more information\n' "$exitcode" "$logfile" >&2
-            didlogproblem=true
-        fi
-    elif [ "$runtime" = "apptainer" ] || [ "$runtime" = "singularity" ]; then
-        printf "Running bcftools... "
-        printf ':: BCFTOOLS ::\n' > "$logfile"
-        $runtime exec "$@" "$basefolder/apply-impprove.sif" \
-            bcftools csq --samples - \
-            --ncsq 40 --gff-annot "/data/$annotfile" --local-csq \
-            --fasta-ref "/data/$genomefile" "/workdir/$(basename "$input_file")" \
-            --output-type u -o "/workdir/intermediate.bcf" \
-            2>>"$logfile"
-        exitcode=$?
-        if [ $exitcode -ne 0 ]; then
-            printf '\e[31mexit code %s\e[m\n  See the logfile %s for more information\n' "$exitcode" "$logfile" >&2
-            didlogproblem=true
-        fi
-        printf "slivar... "
-        printf '\n\n:: SLIVAR ::\n' >> "$logfile"
-        $runtime exec "$@" "$basefolder/apply-impprove.sif" \
-            slivar expr --vcf "/workdir/intermediate.bcf" \
-            -g "/data/$gnomadfile" --info "$sinfo" \
-            -o "/workdir/outfile.vcf" \
-            2>>"$logfile"
-        exitcode=$?
-        if [ $exitcode -ne 0 ]; then
-            printf '\e[31mexit code %s\e[m\n  See the logfile %s for more information\n' "$exitcode" "$logfile" >&2
-            didlogproblem=true
-        fi
+    printf "Checking... " >&2
+    checkref=false
+    reference=$(_impprove_container_exec "$runtime" "$tempdir:/workdir" -- \
+        bcftools view --header-only "/workdir/$(basename "$input_file")" 2>/dev/null \
+        | grep '##reference')
+    exitcode=$?
+    if [ $exitcode -ne 0 ]; then
+        printf "\e[33m(could not locate reference header in VCF)\e[m " >&2
+    elif occursin -i "hg38" "$reference"; then
+        :
+    elif occursin -i "grch38" "$reference"; then
+        :
+    elif occursin -i "hg19" "$reference"; then
+        printf "\e[33m(seems to be using Hg19, not Hg38)\e[m " >&2
+        checkref=true
+    elif occursin -i "grch37" "$reference"; then
+        printf "\e[33m(seems to be using GRCh37, not GRCh38)\e[m " >&2
+        checkref=true
     else
-      printf ' \e[1;31m!\e[m Container runtime \e[31m%s\e[m is not supported\n' "$runtime" >&2
+        printf '\e[33m(unrecognised reference genome: %s)\e[m ' "${reference##\#\#reference=file://}" >&2
+        checkref=true
     fi
-    if ! $didlogproblem; then
-        # TODO could replace this with a call to `sed` inside the container
-        sed -i 's;##bcftools/csq;##bcftools_csq;' "$tempdir/outfile.vcf"
-        mv "$tempdir/outfile.vcf" "$output_file"
-        rm -rf "$tempdir"
-        printf "\e[32mdone\e[m\n" >&2
+    if $checkref; then
+        num_records=$(_impprove_container_exec "$runtime" \
+            "$basefolder/data:/data" "$tempdir:/workdir" -- \
+            bcftools stats "/workdir/$(basename "$input_file")")
+        num_records="${num_records##*number of records:	}"
+        num_mismatch=$(_impprove_container_exec "$runtime" \
+            "$basefolder/data:/data" "$tempdir:/workdir" -- \
+            bcftools norm --check-ref w --fasta-ref /data/Hg38p14.fa \
+            "/workdir/$(basename "$input_file")" | grep -c "REF_MISMATCH")
+        if [ $(("$num_mismatch" + "$num_mismatch")) -gt "$num_records" ]; then
+            printf '\n \e[1;31m!\e[m More than half of the variants do not match \
+                the Hg38 reference genome. Is is likely the input VCF is built against \
+                an older reference genome. If it uses Hg19/GRCh37 you can use the \
+                \e[36mliftover\e[m subcommand to lift it to Hg38 like so:\n  \
+                %s liftover %s %s.hg38\n\
+                Then try again.' "$(basename "$0")" "$input_file" "$in"
+            return 18
+        fi
     fi
+    printf "Running bcftools... " >&2
+    printf ':: BCFTOOLS ::\n' > "$logfile"
+    _impprove_container_exec "$runtime" \
+        "$basefolder/data:/data" "$tempdir:/workdir" -- \
+        bcftools csq --samples - \
+        --ncsq 40 --gff-annot "/data/$annotfile" --local-csq \
+        --fasta-ref "/data/$genomefile" "/workdir/$(basename "$input_file")" \
+        --output-type u -o "/workdir/intermediate.bcf" \
+        2>>"$logfile"
+    exitcode=$?
+    printf '\nexit code = %s' "$exitcode"
+    if [ $exitcode -ne 0 ]; then
+        printf '\e[31mexit code %s\e[m\n  See the logfile %s for more information\n' "$exitcode" "$logfile" >&2
+        return 1
+    fi
+    printf "slivar... " >&2
+    printf '\n\n:: SLIVAR ::\n' >> "$logfile"
+    _impprove_container_exec \
+        "$basefolder/data:/data" "$tempdir:/workdir" -- \
+        slivar expr --vcf "/workdir/intermediate.bcf" \
+        -g "/data/$gnomadfile" --info "$sinfo" \
+        -o "/workdir/outfile.vcf" \
+        2>>"$logfile"
+    exitcode=$?
+    if [ $exitcode -ne 0 ]; then
+        printf '\e[31mexit code %s\e[m\n  See the logfile %s for more information\n' "$exitcode" "$logfile" >&2
+        return 1
+    fi
+    # TODO could replace this with a call to `sed` inside the container
+    sed -i 's;##bcftools/csq;##bcftools_csq;' "$tempdir/outfile.vcf"
+    mv "$tempdir/outfile.vcf" "$output_file"
+    rm -rf "$tempdir"
+    printf "\e[32mdone\e[m\n" >&2
 }
 
 impprove__predict() {
@@ -207,7 +288,7 @@ The \e[34m-i\e[m argument can also point to a folder of VCF files.
                 models_arg="$1"
                 ;;
             *)
-                hpo_args="$hpo_args $1"
+                hpo_args="$hpo_args $(escval "$1")"
                 ;;
         esac
         shift
@@ -264,6 +345,96 @@ The \e[34m-i\e[m argument can also point to a folder of VCF files.
     printf "\e[32mDone\e[m\n" >&2
 }
 
+impprove__liftover() {
+    if [ $# -eq 0 ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+        printf '
+    %s liftover [-f FROM -t TO] -i INFILE.VCF -o OUTFILE.VCF [-r REJFILE.VCF]
+
+Lift \e[36mINFILE.VCF\e[m from genome build \e[36mFROM\e[m (Hg19 by default) to \e[36mTO\e[m (Hg38 by default).
+The lifted result is written to \e[36mOUTFILE.VCF\e[m, and rejected variants (that could not
+be lifted over) to OUTFILE.VCF.rej if \e[36mREJFILE.VCF\e[m is not specified.
+' "$(basename "$0")"
+        exit 0
+    fi
+    _impprove_check_dirs "data/liftover"
+    hg_from="19"
+    hg_to="38"
+    input_file=""
+    output_file=""
+    rejects_file=""
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -f)
+                shift
+                hg_from="$1"
+                ;;
+            -t)
+                shift
+                hg_to="$1"
+                ;;
+            -i)
+                shift
+                input_file="$1"
+                ;;
+            -o)
+                shift
+                output_file="$1"
+                ;;
+            -r)
+                shift
+                rejects_file="$1"
+                ;;
+            *)
+                printf "Flag \e[31m%s\e[m unrecognised\n" "$1"
+                ;;
+        esac
+        shift
+    done
+    # Check for mandatory options
+    if [ -z "$input_file" ]; then
+        printf "\e[31mError:\e[m Mandatory options \e[33m-i INFILE.VCF\e[m and -o OUTFILE.VCF are required.\n" >&2
+        exit 1
+    elif [ -z "$output_file" ]; then
+        printf "\e[31mError:\e[m Mandatory options -i INFILE.VCF and \e[33m-o OUTFILE.VCF\e[m are required.\n" >&2
+        exit 1
+    fi
+    if [ ! -e "$input_file" ]; then
+        printf '\e[31mError:\e[m \e[36m%s\e[m is not a file or folder\n' "$input_file" >&2
+        exit 1
+    fi
+    if [ -z "$rejects_file" ]; then
+        rejects_file="$output_file.rej"
+    fi
+    tempdir=$(mktemp -d)
+    cp "$input_file" "$tempdir"
+    basefolder="$(dirname "$(realpath -s "$0")")"
+    runtime="$(_impprove_container_runtime)"
+    bind="$(_impprove_container_bindarg "$runtime")"
+    logfile="$tempdir/log.txt"
+    didlogproblem=false
+    set -- "$bind" "$basefolder/data:/data" "$bind" "$tempdir:/workdir"
+    printf '[\e[33m%s\e[m] ' "$runtime" >&2
+    printf "Lifting... " >&2
+    printf ':: Liftover::\n' > "$logfile"
+    _impprove_container_exec "$runtime" \
+        "$basefolder/data:/data" "$tempdir:/workdir" -- \
+        "/liftover/liftover.jl" "$hg_from" "$hg_to" \
+        "/workdir/$(basename "$input_file")" "/workdir/lifted.vcf" \
+        "/workdir/rej.vcf" &>>"$logfile"
+    exitcode=$?
+    if [ $exitcode -ne 0 ]; then
+        printf '\e[31mexit code %s\e[m\n  See the logfile %s for more information\n' "$exitcode" "$logfile" >&2
+        didlogproblem=true
+    fi
+    if ! $didlogproblem; then
+        mv "$tempdir/lifted.vcf" "$output_file"
+        [ -s "$tempdir/rej.vcf" ] &&
+            mv "$tempdir/rej.vcf" "$rejects_file"
+        rm -rf "$tempdir"
+        printf "\e[32mdone\e[m\n" >&2
+    fi
+}
+
 impprove() {
   cmdname="$1"; shift
   if type "impprove__$cmdname" >/dev/null 2>&1; then
@@ -287,11 +458,12 @@ if type "impprove__$1" >/dev/null 2>&1; then
   impprove "$@" # same as "$1" "$2" "$3" ... for full argument list
 elif [ -z "$1" ]; then
     printf '
-    %s filter|predict [args...]
+    %s liftover|filter|predict [args...]
 
-Either filter a VCF file in preperation for prediction, or create predictions
-from a VCF file. See the \e[34mfilter\e[m and \e[34mpredict\e[m subcommands'' help
-for more information.
+Either liftover an Hg19 VCF to Hg38, filter a VCF file in preperation for
+prediction, or create predictions from a VCF file. See the \e[34mliftover\e[m,
+\e[34mfilter\e[m, and \e[34mpredict\e[m subcommand'"'"'s help for more
+information.
 
 This scripts acts as a small shim over the container, for convenience.
 Run the container itself with --help to see more information on it.
