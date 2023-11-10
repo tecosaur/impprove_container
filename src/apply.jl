@@ -161,19 +161,23 @@ for (i, vcf) in enumerate(VCF_FILES)
                           map(id -> findfirst(==(id), resdf_rowids),
                               df_rowids))
         for (i, hpo) in enumerate(hpos)
-            @debug "Predicting $hpo with $model X$(size(X))"
-            mach = IMPPROVE.getmach(string(hpo), :machine, :scores, category = model)
-            push!(mach_scores, mach[:scores][MACH_SCORE])
-            preds = if isnothing(mach[:machine]) # CADD/AM
-                push!(importances, (; ))
-                X[!, end] # The last column should be the CADD/AM score
-            else
-                push!(importances, mach[:machine].fitresult.importances |> NamedTuple)
-                pdf.(MLJ.predict(mach[:machine], X), true)
+            try
+                @debug "Predicting $hpo with $model X$(size(X))"
+                mach = IMPPROVE.getmach(string(hpo), :machine, :scores, category = model)
+                push!(mach_scores, mach[:scores][MACH_SCORE])
+                preds = if isnothing(mach[:machine]) # CADD/AM
+                    push!(importances, (; ))
+                    X[!, end] # The last column should be the CADD/AM score
+                else
+                    push!(importances, mach[:machine].fitresult.importances |> NamedTuple)
+                    pdf.(MLJ.predict(mach[:machine], X), true)
+                end
+                push!(labels, "$model " * "HP:" * lpad(hpo, 7, '0'))
+                resdf[!, labels[end]] = zeros(Float64, size(resdf, 1))
+                all_preds[res_rows, (m-1) * length(hpos) + i] = resdf[res_rows, labels[end]] = preds
+            catch err
+                @error sprint(showerror, err)
             end
-            push!(labels, "$model " * "HP:" * lpad(hpo, 7, '0'))
-            resdf[!, labels[end]] = zeros(Float64, size(resdf, 1))
-            all_preds[res_rows, (m-1) * length(hpos) + i] = resdf[res_rows, labels[end]] = preds
         end
     end
 
