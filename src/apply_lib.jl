@@ -27,6 +27,7 @@ const hpodescs = haskey(ENV, "_JL_DOCKER_PRERUN") ||
     d"HPO descriptions"
 
 function parsehpo(h::AbstractString)
+    h = strip(h, ''')
     if all(c -> c ∈ '0':'9', strip(h))
         parse(Int, h)
     elseif startswith(lowercase(h), "hp") && h[end] ∈ '0':'9'
@@ -108,6 +109,7 @@ function vcfannotate(variants::DataFrame, base::Symbol, expr_d::String)
         ensembl_ids = GeneVariantsMinimalData.find_surrounding_exons_genes(location, chromosome, exons, protprefer=true)
         if isempty(ensembl_ids)
             nonexon_removed[] += 1
+            @debug lazy"Could not find $chromosome:$location $change in the exome"
         else
             variants.ensembl_id[i] = first(ensembl_ids)
         end
@@ -121,7 +123,7 @@ function vcfannotate(variants::DataFrame, base::Symbol, expr_d::String)
     ndropped = sum(ismissing, variants.ensembl_id)
     if ndropped > 0
         @warn "Dropping $ndropped variants ($(round(100*ndropped/size(variants,1), digits=1))%) \
-               as they could not be linked to a gene thorugh the exome."
+               for '$expr_d:$base' as the variants could not be found in the exome."
     end
     dropmissing!(variants, :ensembl_id)
     num_have_ensembl = size(variants, 2)

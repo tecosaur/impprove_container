@@ -110,7 +110,7 @@ const HEATMAP_TOPN = 50
 const HGNC = d"HGNC"
 
 for (i, vcf) in enumerate(VCF_FILES)
-    @info "Running predictions on $(basename(vcf))"
+    @info "Running predictions on $(basename(vcf)) [$i/$(length(VCF_FILES))]"
     mkpath(joinpath("/predictions", basename(vcf)))
     isnothing(VCF_TABLES[i]) && continue
     annotdata = VCF_ANNOT[i]
@@ -137,7 +137,7 @@ for (i, vcf) in enumerate(VCF_FILES)
                      else
                          missing, missing
                      end
-                     (; ensembl_id, gene_symbol, gene_name, chromosome, location, ref, alt)
+                     (; chromosome, location, ref, alt, ensembl_id, gene_symbol, gene_name)
                  end,
                  unionrows, rowid)
         end
