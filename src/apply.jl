@@ -108,6 +108,7 @@ const MACH_SCORE = :πα⁻¹5000
 const MIN_GOOD_SCORE = 0.4
 const HEATMAP_TOPN = 50
 const HGNC = d"HGNC"
+const HDESC = d"HPO descriptions"
 
 for (i, vcf) in enumerate(VCF_FILES)
     @info "Running predictions on $(basename(vcf)) [$i/$(length(VCF_FILES))]"
@@ -151,8 +152,9 @@ for (i, vcf) in enumerate(VCF_FILES)
                        Tables.namedtupleiterator(resdf))
     all_preds = fill(NaN, size(resdf, 1), length(hpos) * length(SETUP.modelsets[]))
     mach_scores = Float64[]
-    importances = NamedTuple[]
+    base_models = Tuple{Int, Symbol}[]
     labels = String[]
+    hpo_labels = String[]
     for (m, (annotdf, model)) in enumerate(zip(annotdata, SETUP.modelsets[]))
         X = select(annotdf, Not([:chromosome, :location, :change, :ensembl_id]))
         df_rowids = map(((; chromosome, location, change),) -> hash((; chromosome, location, change)),
@@ -160,9 +162,15 @@ for (i, vcf) in enumerate(VCF_FILES)
         res_rows = filter(!isnothing,
                           map(id -> findfirst(==(id), resdf_rowids),
                               df_rowids))
-        for (i, hpo) in enumerate(hpos)
+        importances = NamedTuple[]
+        for hpo in hpos
             try
                 @debug "Predicting $hpo with $model X$(size(X))"
+                mbase, mexpr = guess_base_expr(model)
+                if mexpr == ""
+                    mbase ∈ last.(base_models) && continue
+                    push!(base_models, (length(mach_scores)+1, mbase))
+                end
                 mach = IMPPROVE.getmach(string(hpo), :machine, :scores, category = model)
                 push!(mach_scores, mach[:scores][MACH_SCORE])
                 preds = if isnothing(mach[:machine]) # CADD/AM
@@ -172,14 +180,33 @@ for (i, vcf) in enumerate(VCF_FILES)
                     push!(importances, mach[:machine].fitresult.importances |> NamedTuple)
                     pdf.(MLJ.predict(mach[:machine], X), true)
                 end
-                push!(labels, "$model " * "HP:" * lpad(hpo, 7, '0'))
+                if mexpr == ""
+                    push!(labels, model)
+                    push!(hpo_labels, String(mbase))
+                else
+                    push!(labels, "$model " * "HP:" * lpad(hpo, 7, '0'))
+                    idx = findfirst(==(hpo), HDESC.hpo)
+                    push!(hpo_labels, model_shortname(model) * ": " * if !isnothing(idx)
+                              HDESC.description[idx]
+                          else
+                              "HP:" * lpad(hpo, 7, '0')
+                          end)
+                end
                 resdf[!, labels[end]] = zeros(Float64, size(resdf, 1))
-                all_preds[res_rows, (m-1) * length(hpos) + i] = resdf[res_rows, labels[end]] = preds
+                all_preds[res_rows, length(labels)] = resdf[res_rows, labels[end]] = preds
             catch err
                 @error sprint(showerror, err)
             end
         end
+        isempty(importances) || isempty(first(importances)) && continue
+        impdf = DataFrame(importances)
+        impdf.model = labels[end-length(importances)+1:end]
+        impdf′ = unstack(stack(impdf), :variable, :model, :value)
+        sort!(impdf′, :variable)
+        CSV.write(joinpath("/predictions", basename(vcf), "$(last(split(labels[end])))-variable-importances.csv"),
+                  impdf′)
     end
+    all_preds = all_preds[:, 1:length(labels)]
 
     CSV.write(joinpath("/predictions", basename(vcf), "all-predictions.csv"),
               resdf)
@@ -188,62 +215,42 @@ for (i, vcf) in enumerate(VCF_FILES)
               DataFrame("model" => labels,
                         "$MACH_SCORE score" => mach_scores))
 
-    for (set, imps, labs) in zip(SETUP.modelsets[],
-                                 Iterators.partition(importances, length(hpos)),
-                                 Iterators.partition(labels, length(hpos)))
-        isempty(first(imps)) && continue
-        impdf = DataFrame(imps)
-        impdf.model = labs
-        impdf′ = unstack(stack(impdf), :variable, :model, :value)
-        sort!(impdf′, :variable)
-        CSV.write(joinpath("/predictions", basename(vcf), "$set-variable-importances.csv"),
-                impdf′)
-    end
-
     CSV.write(joinpath("/predictions", basename(vcf), "hpo-descriptions.csv"),
               select(filter(:hpo => h -> h ∈ hpos, d"HPO descriptions"),
                      :hpo => ByRow(h -> "HP:" * lpad(h, 7, '0')) => :hpo,
                      :description))
 
-    hpo_names = let hdesc = d"HPO descriptions"
-        [let idx = findfirst(==(hpo), hdesc.hpo)
-             model_shortname(model) * ": " * if !isnothing(idx)
-                 hdesc.description[idx]
-             else
-                 "HP:" * lpad(hpo, 7, '0')
-             end
-         end
-         for model in SETUP.modelsets[] for hpo in hpos]
-    end
-
     variant_labels =
         string.(resdf.gene_symbol, " (chr", resdf.chromosome, ':', resdf.location, ' ', resdf.ref, '>', resdf.alt, ')')
-    wsum_order = sortperm(replace(all_preds, NaN => 0.0) * mach_scores, rev=true)
+    baserescaled_mach_scores = copy(mach_scores)
+    for (i, _) in base_models
+        baserescaled_mach_scores[i] = baserescaled_mach_scores[i] ./
+            -(reverse(extrema(filter(!isnan, all_preds[:, i])))...)
+    end
+    wsum_order = sortperm(replace(all_preds, NaN => 0.0) * baserescaled_mach_scores, rev=true)
     topn = min(size(resdf, 1), HEATMAP_TOPN)
     save(joinpath("/predictions", basename(vcf), "top-$topn-preds.png"),
-         pred_headmap(all_preds[wsum_order[1:topn], :], clust=false,
+         pred_headmap(all_preds[wsum_order[1:topn], :], clust=false, base_score_inds = first.(base_models),
                       title = "Heatmap of top $topn predictions for $(basename(vcf))",
                       xlabel = "Variant",
                       xticks = (1:topn, variant_labels[wsum_order[1:topn]]),
                       ylabel = "Model",
-                      yticks = (1:length(hpo_names), hpo_names),
-                      xticklabelrotation = 1,
-                      ),
+                      yticks = (1:length(hpo_labels), hpo_labels),
+                      xticklabelrotation = 1),
          pt_per_unit = 4.0)
     save(joinpath("/predictions", basename(vcf), "all-preds.png"),
-         pred_headmap(all_preds[wsum_order, :], clust=false,
+         pred_headmap(all_preds[wsum_order, :], clust=false, base_score_inds = first.(base_models),
                       title = "Heatmap of predictions for $(basename(vcf))",
                       xlabel = "Variant",
                       xticks = (1:size(all_preds, 1), variant_labels[wsum_order]),
                       ylabel = "Model",
-                      yticks = (1:length(hpo_names), hpo_names),
-                      xticklabelrotation = 1,
-                      ),
+                      yticks = (1:length(hpo_labels), hpo_labels),
+                      xticklabelrotation = 1),
          pt_per_unit = 3.0)
 
     # Good mean
     good_selection = mach_scores .>= MIN_GOOD_SCORE
-    good_preds = all_preds[:, good_selection] * mach_scores[good_selection]
+    good_preds = all_preds[:, good_selection] * baserescaled_mach_scores[good_selection]
     @info "$(sum(mach_scores .>= MIN_GOOD_SCORE)) / $(length(mach_scores)) models have a $MACH_SCORE score ≥ $MIN_GOOD_SCORE (and are considered 'good')"
     good_preds_df = select(resdf, :ensembl_id, :gene_name, :chromosome, :location, :ref, :alt)
     good_preds_df.prediction = good_preds
