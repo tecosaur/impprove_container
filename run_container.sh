@@ -87,12 +87,9 @@ _impprove_container_exec() {
           set -- "$@" "$arg"
         fi
     done
-    printf '\n\nruntime: %s\n\n' "$runtime"
     if [ "$runtime" = "podman" ] || [ "$runtime" = "docker" ]; then
-        echo "$runtime run $*"
         "$runtime" run "$@"
     elif [ "$runtime" = "apptainer" ] || [ "$runtime" = "singularity" ]; then
-        echo "$runtime $*"
         "$runtime" "$@"
     else
       printf ' \e[1;31m!\e[m Container runtime \e[31m%s\e[m is not supported\n' "$runtime" >&2
@@ -227,14 +224,13 @@ Then try again.\n" "$num_mismatch" "$num_records" "$(basename "$0")" "$input_fil
         --output-type u -o "/workdir/intermediate.bcf" \
         2>>"$logfile"
     exitcode=$?
-    printf '\nexit code = %s' "$exitcode"
     if [ $exitcode -ne 0 ]; then
         printf '\e[31mexit code %s\e[m\n  See the logfile %s for more information\n' "$exitcode" "$logfile" >&2
         return 1
     fi
     printf "slivar... " >&2
     printf '\n\n:: SLIVAR ::\n' >> "$logfile"
-    _impprove_container_exec \
+    _impprove_container_exec "$runtime" \
         "$basefolder/data:/data" "$tempdir:/workdir" -- \
         slivar expr --vcf "/workdir/intermediate.bcf" \
         -g "/data/$gnomadfile" --info "$sinfo" \
