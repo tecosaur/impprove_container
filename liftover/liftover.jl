@@ -56,6 +56,10 @@ if endswith(infile, r"\.gvcf(?:\.gz)?")
         end
     end
     infile = vcf_in_file
+    if endswith(outfile, r"\.gvcf(?:\.gz)?")
+        @warn "Outfile extension is incorrect, should be $(replace(outfile, r"^.*\.gvcf(\.gz)?$" => s".vcf\1")), correcting"
+        outfile = replace(outfile, r"\.gvcf(\.gz)?$" => s".vcf\1")
+    end
 end
 
 CondaPkg.withenv() do

@@ -44,18 +44,36 @@ end
 IMPPROVE.set_modeldir!("/models")
 
 VCF_FILES, HPO_MAP = let files = readdir("/vcfs", join=true)
-    vcfs = filter(f -> endswith(f, ".vcf") || endswith(f, ".vcf.gz"),
-           files)
+    itemp = if startswith(first(DEPOT_PATH), tempdir())
+        first(DEPOT_PATH)
+    else tempdir() end
+    vcfs = map(filter(f -> endswith(f, r"\.g?vcf(?:\.gz)?"), files)) do f
+        if endswith(f, r"\.gvcf(?:\.gz)?")
+            @info "Converting $(basename(f)) to a non-g(vcf)"
+            newvcf = itemp * replace(basename(f), r"\.gvcf(?:\.gz)?$" => "-converted.vcf")
+            open(newvcf, "w") do io
+                for line in eachline(
+                    pipeline(`bcftools convert $f
+                            --fasta-ref $(abspath("liftover/data/Hg38p14.fa")) --gvcf2vcf`,
+                            `bcftools view -e 'ALT[0] == "<NON_REF>"'`))
+                    print(io, replace(line, ",<NON_REF>" => ""), '\n')
+                end
+            end
+            newvcf
+        else f end
+    end
     vcfs,
     if "/vcfs/hpo.map" in files
+        vcfnames = Set(map(basename, vcfs))
         open("/vcfs/hpo.map") do io
             mapping = Dict{String, Vector{Int}}()
             for line in eachline(io)
                 vcf, all_terms = split(line, limit=2)
-                if string("/vcfs/", vcf) ∉ vcfs
+                if vcf ∉ vcfnames
                     @warn "VCF in hpo.map not present ($vcf), skipping"
                     continue
                 end
+                vcf = replace(vcf, r"\.gvcf(?:\.gz)?$" => "-converted.vcf")
                 terms = map(parsehpo, split(all_terms))
                 mapping[vcf] = terms
             end
@@ -76,52 +94,35 @@ if isempty(VCF_FILES)
     exit(1)
 end
 
-@info "Loading $(length(VCF_FILES)) VCFs"
-
-VCF_TABLES = DataFrame[]
-VCF_ANNOT = Vector{DataFrame}[]
-
-for vcf in VCF_FILES
-    table = IMPPROVE.vcfdata(vcf)
-    if !isempty(table)
-        push!(VCF_TABLES, table)
-    else
-        @warn "$vcf is empty, skipping"
-        deleteat!(VCF_FILES, length(VCF_TABLES)+1)
-    end
-end
-
-if isempty(VCF_FILES)
-    error("No variants to process, exiting.")
-end
-
-@info "Annotating the VCFs"
-
-for i in eachindex(VCF_TABLES)
-    @debug "Expression sources: $(join(map(guess_base_expr, SETUP.modelsets[]), ", "))"
-    push!(VCF_ANNOT, [
-        vcfannotate(VCF_TABLES[i], base, expr)
-        for (base, expr) in map(guess_base_expr, SETUP.modelsets[])])
-end
-
 const MACH_SCORE = :πα⁻¹5000
 const MIN_GOOD_SCORE = 0.4
 const HEATMAP_TOPN = 50
 const HGNC = d"HGNC"
 const HDESC = d"HPO descriptions"
 
-for (i, vcf) in enumerate(VCF_FILES)
-    @info "Running predictions on $(basename(vcf)) [$i/$(length(VCF_FILES))]"
+const NUM_PROCESSED = Ref(0)
+
+function process_vcf(vcf::String)
+    i = (NUM_PROCESSED[] += 1)
+    @info "* [$i/$(length(VCF_FILES))] $(basename(vcf))"
     mkpath(joinpath("/predictions", basename(vcf)))
-    isnothing(VCF_TABLES[i]) && continue
-    annotdata = VCF_ANNOT[i]
+    @info "Loading VCF"
+    vcf_table = IMPPROVE.vcfdata(vcf)
+    if isempty(vcf_table)
+        @warn "$vcf is empty, skipping"
+        return
+    end
+    @info "Annotating (x$(length(SETUP.modelsets[])))"
+    @debug "Expression sources: $(join(map(guess_base_expr, SETUP.modelsets[]), ", "))"
+    annotdata = [vcfannotate(vcf_table, base, expr)
+                 for (base, expr) in map(guess_base_expr, SETUP.modelsets[])]
     hpos = if haskey(HPO_MAP, basename(vcf))
         HPO_MAP[basename(vcf)]
-    elseif !isempty(SETUP.hpos[])
+    elseif !isnothing(SETUP.hpos[]) && !isempty(SETUP.hpos[])
         SETUP.hpos[]
     else
         @warn "No HPO terms attached to $vcf, skipping"
-        continue
+        return
     end
     unionrows = Dict{UInt64, NamedTuple}()
     for annot in annotdata
@@ -198,7 +199,7 @@ for (i, vcf) in enumerate(VCF_FILES)
                 @error sprint(showerror, err)
             end
         end
-        isempty(importances) || isempty(first(importances)) && continue
+        (isempty(importances) || isempty(first(importances))) && continue
         impdf = DataFrame(importances)
         impdf.model = labels[end-length(importances)+1:end]
         impdf′ = unstack(stack(impdf), :variable, :model, :value)
@@ -206,6 +207,12 @@ for (i, vcf) in enumerate(VCF_FILES)
         CSV.write(joinpath("/predictions", basename(vcf), "$(last(split(labels[end])))-variable-importances.csv"),
                   impdf′)
     end
+
+    if isempty(labels)
+        @warn "No models could be applied"
+        return
+    end
+
     all_preds = all_preds[:, 1:length(labels)]
 
     CSV.write(joinpath("/predictions", basename(vcf), "all-predictions.csv"),
@@ -252,7 +259,7 @@ for (i, vcf) in enumerate(VCF_FILES)
     good_selection = mach_scores .>= MIN_GOOD_SCORE
     good_preds = all_preds[:, good_selection] * baserescaled_mach_scores[good_selection]
     @info "$(sum(mach_scores .>= MIN_GOOD_SCORE)) / $(length(mach_scores)) models have a $MACH_SCORE score ≥ $MIN_GOOD_SCORE (and are considered 'good')"
-    good_preds_df = select(resdf, :ensembl_id, :gene_name, :chromosome, :location, :ref, :alt)
+    good_preds_df = select(resdf, :chromosome, :location, :ref, :alt, :ensembl_id, :gene_symbol, :gene_name)
     good_preds_df.prediction = good_preds
     CSV.write(joinpath("/predictions", basename(vcf), "wmean-good-prediction.csv"),
               good_preds_df)
@@ -262,6 +269,10 @@ for (i, vcf) in enumerate(VCF_FILES)
                             "{%infile%}" => basename(vcf))
     write(joinpath("/predictions", basename(vcf), "README.txt"),
           mini_readme)
+end
+
+for vcf in VCF_FILES
+    process_vcf(vcf)
 end
 
 if startswith(first(DEPOT_PATH), tempdir())

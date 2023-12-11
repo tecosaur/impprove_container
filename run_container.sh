@@ -396,6 +396,11 @@ be lifted over) to OUTFILE.VCF.rej if \e[36mREJFILE.VCF\e[m is not specified.
         printf "\e[31mError:\e[m Mandatory options -i INFILE.VCF and \e[33m-o OUTFILE.VCF\e[m are required.\n" >&2
         exit 1
     fi
+    case $output_file in
+        (*.gvcf*)
+            printf "\e[33mWarning:\e[m Output file cannot have .gvcf extension, changing to .vcf\n"
+            output_file="${output_file/gvcf/vcf}";;
+    esac
     if [ ! -e "$input_file" ]; then
         printf '\e[31mError:\e[m \e[36m%s\e[m is not a file or folder\n' "$input_file" >&2
         exit 1
@@ -406,6 +411,7 @@ be lifted over) to OUTFILE.VCF.rej if \e[36mREJFILE.VCF\e[m is not specified.
     tempdir=$(mktemp -d)
     cp "$input_file" "$tempdir"
     basefolder="$(dirname "$(realpath -s "$0")")"
+    outext="${output_file#*.}"
     runtime="$(_impprove_container_runtime)"
     bind="$(_impprove_container_bindarg "$runtime")"
     logfile="$tempdir/log.txt"
@@ -417,7 +423,7 @@ be lifted over) to OUTFILE.VCF.rej if \e[36mREJFILE.VCF\e[m is not specified.
     _impprove_container_exec "$runtime" \
         "$basefolder/data:/data" "$tempdir:/workdir" -- \
         "/liftover/liftover.jl" "$hg_from" "$hg_to" \
-        "/workdir/$(basename "$input_file")" "/workdir/lifted.vcf" \
+        "/workdir/$(basename "$input_file")" "/workdir/lifted.$outext" \
         "/workdir/rej.vcf" >>"$logfile"
     exitcode=$?
     if [ $exitcode -ne 0 ]; then
@@ -425,7 +431,7 @@ be lifted over) to OUTFILE.VCF.rej if \e[36mREJFILE.VCF\e[m is not specified.
         didlogproblem=true
     fi
     if ! $didlogproblem; then
-        mv "$tempdir/lifted.vcf" "$output_file"
+        mv "$tempdir/lifted.$outext" "$output_file"
         [ -s "$tempdir/rej.vcf" ] &&
             mv "$tempdir/rej.vcf" "$rejects_file"
         rm -rf "$tempdir"
