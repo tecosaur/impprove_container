@@ -1,0 +1,14 @@
+#+title: IMPPROVE
+
+*I*​nterpretable and *M*​odular *P*​latorm for *P*​rediction of *R*​elevant *O*​(bscure) *V*​ariants by *E*​xpression.
+
+Other possible *O* choices:
++ Obscure
++ Oblique
+  In the sense of "/Not straightforward; indirect; obscure; hence, disingenuous;
+  underhand; perverse; sinister./" (Webster 1913)
++ Occult
+  In the sense of "/Hidden from the eye or the understanding; inviable; secret;
+  concealed; unknown./" (Webster 1913)
++ Odd
++ Odious

@@ -1,0 +1,320 @@
+data_config_version = 0
+uuid = "b0bf52c3-b0ab-4272-a983-815c9aa45892"
+name = "GeneVarMin"
+plugins = ["defaults", "store", "memorise", "versions"]
+
+[config.defaults]
+memorise = true
+
+[["AlphaMissense Hg38"]]
+uuid = "e98a8a3b-d609-4c96-8945-b9e229b63dcd"
+description = """
+Predictions for all possible single nucleotide missense variants (71M) from 19k
+human protein-coding genes (canonical transcripts) for both hg19 and hg38
+coordinates. These files are sorted by genomic coordinates.
+"""
+
+    [["AlphaMissense Hg38".storage]]
+    driver = "filesystem"
+    checksum = "crc32c:f7612ed8"
+    path = "data/AlphaMissense Hg38.csv.zst"
+
+    [["AlphaMissense Hg38".loader]]
+    driver = "chain"
+    cache = false
+    loaders = ["zstd", "csv"]
+
+[["Clinvar PfE SNVs + AM (conf>=3, P/B)"]]
+uuid = "18f7fbc8-2f98-4673-8d3c-c4a9ffc8ef27"
+description = """
+`Clinvar PfE SNVs + AM` filtered to confidence >= 3 entries which are either
+considered 'pathogenic' or 'benign' (i.e. no 'probably' or 'uncertain' entries).
+"""
+version = "2022.02"
+
+    [["Clinvar PfE SNVs + AM (conf>=3, P/B)".storage]]
+    driver = "filesystem"
+    checksum = "crc32c:27c9e6b"
+    path = "data/Clinvar PfE SNVs + AM (conf>=3, PB)@2022.csv"
+
+    [["Clinvar PfE SNVs + AM (conf>=3, P/B)".loader]]
+    driver = "chain"
+
+        [["Clinvar PfE SNVs + AM (conf>=3, P/B)".loader.loaders]]
+        driver = "csv"
+        args.types = { "pathogenicity" = "Symbol" }
+        [["Clinvar PfE SNVs + AM (conf>=3, P/B)".loader.loaders]]
+        driver = "julia"
+        function = "cv -> select(cv, Not([:ref, :alt, :am_score]), [:ref, :alt] => ByRow((r, a) -> Pair(r[1], a[1])) => :change, :am_score)"
+        input = "DataFrame"
+        type = "DataFrame"
+
+[["Clinvar PfE SNVs + CADD (conf>=3, P/B)"]]
+uuid = "6590bf78-2ab4-47fc-ae56-88308ce523f1"
+description = """
+`Clinvar PfE SNVs + CADD` filtered to confidence >= 3 entries which are either
+considered 'pathogenic' or 'benign' (i.e. no 'probably' or 'uncertain' entries).
+"""
+version = "2022.02"
+
+    [["Clinvar PfE SNVs + CADD (conf>=3, P/B)".storage]]
+    driver = "filesystem"
+    checksum = "crc32c:89b916de"
+    path = "data/Clinvar PfE SNVs + CADD (conf>=3, PB)@2022.csv"
+
+    [["Clinvar PfE SNVs + CADD (conf>=3, P/B)".loader]]
+    driver = "chain"
+
+        [["Clinvar PfE SNVs + CADD (conf>=3, P/B)".loader.loaders]]
+        driver = "csv"
+        args.types = { "pathogenicity" = "Symbol" }
+        [["Clinvar PfE SNVs + CADD (conf>=3, P/B)".loader.loaders]]
+        driver = "julia"
+        function = "cv -> select(cv, Not([:ref, :alt, :cadd]), [:ref, :alt] => ByRow((r, a) -> Pair(r[1], a[1])) => :change, :cadd)"
+        input = "DataFrame"
+        type = "DataFrame"
+
+[["Gencode exons"]]
+uuid = "5288d7ae-d27e-4e6d-93a7-cfeb77efd5e6"
+description = "Gencode exons with a confidence level of 1-2."
+version = "26"
+
+    [["Gencode exons".storage]]
+    driver = "filesystem"
+    checksum = "crc32c:d77d8f25"
+    path = "data/gencode_exons.csv.zst"
+
+    [["Gencode exons".loader]]
+    driver = "chain"
+    type = "Any"
+
+        [["Gencode exons".loader.loaders]]
+        driver = "zstd"
+        [["Gencode exons".loader.loaders]]
+        driver = "csv"
+        [["Gencode exons".loader.loaders]]
+        driver = "julia"
+        function = """
+        cv -> select(cv, :chromosome,
+                     [:start, :end] => ByRow(UnitRange) => :location,
+                     [:gene_type, :gene_id] => ByRow((type, id) -> Dict(\"gene_type\" => [type], \"gene_id\" => [id])) => :attributes)
+        """
+        input = "DataFrame"
+        type = "DataFrame"
+
+[[getCADD]]
+uuid = "f28eb30a-e288-40ac-a7ca-8545b9bab037"
+description = """
+Combined Annotation Dependent Depletion score fetcher.
+The processed result of rawCADD, namely a function
+which will efficiently obtain the CADD score at any position.
+
+By default the raw (not phred) score is provided."""
+
+    [[getCADD.loader]]
+    driver = "julia"
+    cache = false
+    path = "src/getcadd.jl"
+    type = "Function"
+
+        [getCADD.loader.arguments]
+        path = "data/cadd.hdf5"
+
+[["gnomAD SNVs >=10% GfE + AM"]]
+uuid = "73f7a51f-fe92-422f-ba01-fa3602bbde63"
+description = """
+gnomAD SNVs that have a maxfreq >= 10%, with the relevant
+gene(s) determined by examining surrounding (preferentially
+protein-coding) exons."""
+
+    [["gnomAD SNVs >=10% GfE + AM".storage]]
+    driver = "filesystem"
+    checksum = "crc32c:eba87579"
+    path = "data/gnomAD SNVs >=10% GfE + AM.csv"
+
+    [["gnomAD SNVs >=10% GfE + AM".loader]]
+    driver = "chain"
+
+        [["gnomAD SNVs >=10% GfE + AM".loader.loaders]]
+        driver = "csv"
+        [["gnomAD SNVs >=10% GfE + AM".loader.loaders]]
+        driver = "julia"
+        function = "cv -> select(cv, Not([:ref, :alt, :am_score]), [:ref, :alt] => ByRow((r, a) -> Pair(r[1], a[1])) => :change, :am_score)"
+        input = "DataFrame"
+        type = "DataFrame"
+
+[["gnomAD SNVs >=10% GfE + CADD"]]
+uuid = "73f7a51f-fe92-422f-ba01-fa3602bbde63"
+description = """
+gnomAD SNVs that have a maxfreq >= 10%, with the relevant
+gene(s) determined by examining surrounding (preferentially
+protein-coding) exons."""
+
+    [["gnomAD SNVs >=10% GfE + CADD".storage]]
+    driver = "filesystem"
+    checksum = "crc32c:3366a525"
+    path = "data/gnomAD SNVs >=10% GfE + CADD.csv"
+
+    [["gnomAD SNVs >=10% GfE + CADD".loader]]
+    driver = "chain"
+
+        [["gnomAD SNVs >=10% GfE + CADD".loader.loaders]]
+        driver = "csv"
+        [["gnomAD SNVs >=10% GfE + CADD".loader.loaders]]
+        driver = "julia"
+        function = "cv -> select(cv, Not([:ref, :alt, :cadd]), [:ref, :alt] => ByRow((r, a) -> Pair(r[1], a[1])) => :change, :cadd)"
+        input = "DataFrame"
+        type = "DataFrame"
+
+[["GTEx v8 gene tissue summary"]]
+uuid = "b43053b9-ba98-4c28-a3f4-69bae92ee651"
+description = "Summary of gene TPM expression levels by tissue"
+
+    [["GTEx v8 gene tissue summary".storage]]
+    driver = "filesystem"
+    checksum = "crc32c:ad61cc9a"
+    path = "data/GTEx v8 gene tissue summary.csv"
+
+    [["GTEx v8 gene tissue summary".loader]]
+    driver = "csv"
+
+[[HGNC]]
+uuid = "feb417aa-e921-486e-bff3-f0e005741fce"
+description = "HUGO Gene Nomenclature Committee"
+
+    [[HGNC.storage]]
+    driver = "filesystem"
+    checksum = "crc32c:2e8d4d1d"
+    path = "data/HGNC.tsv"
+
+    [[HGNC.loader]]
+    driver = "csv"
+
+[["HPO descriptions"]]
+uuid = "7957376d-8092-46ce-a1f1-224c15172f1a"
+
+    [["HPO descriptions".storage]]
+    driver = "filesystem"
+    checksum = "crc32c:1f446873"
+    path = "data/HPO descriptions.csv"
+
+    [["HPO descriptions".loader]]
+    driver = "csv"
+
+[["phen2gene seed ensembl"]]
+uuid = "acdf6797-71b9-4993-a84b-bf18de57bfd7"
+description = """
+phen2gene seed gene entries, and the associated ensembl IDs
+Specifically, this maps the HPO ID (as an integer) with the ensembl gene IDs
+(ENSG) also as an integer. The conversion from HP:X, ENSG:Y to X, Y is done
+to minimise the memory this data will take (5.5MB instead of 940MB)."""
+
+    [["phen2gene seed ensembl".storage]]
+    driver = "filesystem"
+    checksum = "crc32c:c9de061b"
+    path = "data/phen2gene seed ensembl.csv"
+
+    [["phen2gene seed ensembl".loader]]
+    driver = "chain"
+    type = "Any"
+
+        [["phen2gene seed ensembl".loader.loaders]]
+        driver = "csv"
+        [["phen2gene seed ensembl".loader.loaders]]
+        driver = "julia"
+        function = """
+pse -> Dict([first(df.hpo_id) => collect(df.ensembl_gene_id)
+             for df in groupby(pse, :hpo_id)])"""
+        input = "DataFrame"
+        type = "DataFrame"
+
+[["Tabula Sapiens Celltype summary"]]
+uuid = "ff7ddd34-f8d1-474a-82ca-361c23ecf041"
+description = "Summary of gene expression by celltype"
+
+    [["Tabula Sapiens Celltype summary".storage]]
+    driver = "filesystem"
+    checksum = "crc32c:e6960c01"
+    path = "data/Tabula Sapiens Celltype summary.csv.zst"
+
+    [["Tabula Sapiens Celltype summary".loader]]
+    driver = "chain"
+    loaders = ["zstd", "csv"]
+
+[["Tabula Sapiens Celltype dispersion"]]
+uuid = "e5a9a006-2b06-4fbc-926b-f014d62c6eec"
+description = "Ensembl ID + dispersion values of 'Tabular Sapiens Summary'"
+
+    [["Tabula Sapiens Celltype dispersion".loader]]
+    driver = "julia"
+    function = """
+    (; tss::DataFrame) ->
+        select(tss, :ensembl_id, filter(c -> occursin(\"_dispersion\", c), names(tss)))
+    """
+    type = "DataFrame"
+
+        ["Tabula Sapiens Celltype dispersion".loader.arguments]
+        tss = "📇DATASET<<Tabula Sapiens Celltype summary::DataFrame>>"
+
+[["Tabula Sapiens Celltype mean"]]
+uuid = "17e2de3e-7534-4850-a79a-1f1dada81e10"
+description = "Ensembl ID + mean values of 'Tabular Sapiens Summary'"
+
+    [["Tabula Sapiens Celltype mean".loader]]
+    driver = "julia"
+    function = """
+    (; tss::DataFrame) ->
+        select(tss, :ensembl_id, filter(c -> occursin(\"_mean\", c), names(tss)))
+    """
+    type = "DataFrame"
+
+        ["Tabula Sapiens Celltype mean".loader.arguments]
+        tss = "📇DATASET<<Tabula Sapiens Celltype summary::DataFrame>>"
+
+[["Tabula Sapiens Tissue summary"]]
+uuid = "0dd3ac95-c90d-4b00-aed8-b9ea1fe43487"
+description = """
+The total, stdev, and dispersion of expression levels of genes by tissue, in the Tabula Sapiens data.
+
+Dispersion values are calculated by maximising the marginal MLE for α for NBin(1/α, p).
+This does not correct for batch effects, but should be good enough for our usage.
+"""
+
+    [["Tabula Sapiens Tissue summary".storage]]
+    driver = "filesystem"
+    checksum = "crc32c:abb5158b"
+    path = "data/Tabula Sapiens Tissue summary.csv.zst"
+
+    [["Tabula Sapiens Tissue summary".loader]]
+    driver = "chain"
+    loaders = ["zstd", "csv"]
+
+[["Tabula Sapiens Tissue dispersion"]]
+uuid = "b7c0e501-7a25-48bc-85ab-7d73aabc4488"
+description = "Ensembl ID + dispersion values of 'Tabular Sapiens Summary'"
+
+    [["Tabula Sapiens Tissue dispersion".loader]]
+    driver = "julia"
+    function = """
+    (; tss::DataFrame) ->
+        select(tss, :ensembl_id, filter(c -> occursin(\"_dispersion\", c), names(tss)))
+    """
+    type = "DataFrame"
+
+        ["Tabula Sapiens Tissue dispersion".loader.arguments]
+        tss = "📇DATASET<<Tabula Sapiens Tissue summary::DataFrame>>"
+
+[["Tabula Sapiens Tissue mean"]]
+uuid = "d69ddad9-f0cd-4bd6-bb1a-e8d92617b428"
+description = "Ensembl ID + mean values of 'Tabular Sapiens Summary'"
+
+    [["Tabula Sapiens Tissue mean".loader]]
+    driver = "julia"
+    function = """
+    (; tss::DataFrame) ->
+        select(tss, :ensembl_id, filter(c -> occursin(\"_mean\", c), names(tss)))
+    """
+    type = "DataFrame"
+
+        ["Tabula Sapiens Tissue mean".loader.arguments]
+        tss = "📇DATASET<<Tabula Sapiens Tissue summary::DataFrame>>"
