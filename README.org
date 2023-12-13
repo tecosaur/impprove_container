@@ -8,11 +8,9 @@
 This container applies IMPPROVE-trained random forest models to VCF files, then
 saves and aggregates the predictions.
 
-The input VCFs /must/ use the Hg38 reference genome, but this is not (currently)
-validated.
-
-To filter out common variants, use of [[https://github.com/brentp/slivar][slivar]] is recommended. This tool has
-previously been tested with [[https://github.com/brentp/slivar/wiki/rare-disease][the recommended rare-disease slivar filter]]:
+The input VCFs /must/ use the Hg38 reference genome. This is validated when
+running the =filter= command, which automates the application of [[https://github.com/brentp/slivar][slivar]] with [[https://github.com/brentp/slivar/wiki/rare-disease][the
+recommended rare-disease slivar filter]]:
 
 #+begin_src shell
 bcftools csq --samples - --ncsq 40 --gff-annot $annot_data_file --local-csq --fasta-ref $genome_data $vcf_input_file --output-type u |
