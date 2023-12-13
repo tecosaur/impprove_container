@@ -166,6 +166,11 @@ The \e[34m--info\e[m passed to slivar can be customised by providing your own va
         printf '\e[31mError:\e[m \e[36m%s\e[m is not a file\n' "$input_file"
         exit 1
     fi
+    case $output_file in
+        (*.gz)
+            printf "\e[33mWarning:\e[m Output file must be uncompressed, stripping .gz extension\n"
+            output_file="${output_file%.gz}";;
+    esac
     tempdir=$(mktemp -d)
     cp "$input_file" "$tempdir"
     basefolder="$(dirname "$(realpath -s "$0")")"
