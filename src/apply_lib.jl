@@ -27,11 +27,9 @@ const hpodescs = haskey(ENV, "_JL_DOCKER_PRERUN") ||
     d"HPO descriptions"
 
 function parsehpo(h::AbstractString)
-    h = strip(h, ''')
-    if all(c -> c ∈ '0':'9', strip(h))
+    h = chopprefix(strip(h, collect("' ")), r"hp:?\s*"i)
+    if all(isdigit, h)
         parse(Int, h)
-    elseif startswith(lowercase(h), "hp") && h[end] ∈ '0':'9'
-        parse(Int, replace(lowercase(h), r"hp:?" => ""))
     else
         regularise(str) = replace(lowercase(str), r"[^a-z0-9]" => "")
         descs = regularise.(hpodescs.description)
@@ -54,7 +52,7 @@ function parsehpo(h::AbstractString)
         lscores = filter(!isnothing ∘ last,
                          map(d -> loosematch(hparts, d), descs) |>
                              enumerate |> collect)
-        isempty(lscores) && error("Could not identify HPO term for '$h'")
+        isempty(lscores) && error("Could not identify HPO term for $(sprint(show, h))")
         hpodescs.hpo[first(argmin(last, lscores))]
     end
 end
