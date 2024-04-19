@@ -319,8 +319,8 @@ The \e[34m-i\e[m argument can also point to a folder of VCF files.
     bind="$(_impprove_container_bindarg "$runtime")"
     set -- "$bind" "$basefolder/models:/models" \
         "$bind" "$basefolder/data:/data" \
-        "$bind" "$input_folder:/vcfs" \
-        "$bind" "$output_folder:/predictions"
+        "$bind" "$(realpath "$input_folder"):/vcfs" \
+        "$bind" "$(realpath "$output_folder"):/predictions"
     printf '[\e[33m%s\e[m] ' "$runtime" >&2
     printf "Predicting...\n" >&2
     if [ "$runtime" = "podman" ] || [ "$runtime" = "docker" ]; then
