@@ -39,6 +39,13 @@ end
 
 if !isempty(ARGS)
     SETUP.hpos[] = parsehpo.(ARGS)
+    if !allunique(SETUP.hpos[])
+        dups = ["HP:" * lpad(t, 7, '0')
+                for t in unique(SETUP.hpos[])
+                    if sum(==(t), SETUP.hpos[]) > 1]
+        @warn "Removing duplicates of HPO terms: $(join(dups, ", "))"
+        unique!(SETUP.hpos[])
+    end
 end
 
 IMPPROVE.set_modeldir!("/models")
@@ -75,6 +82,12 @@ VCF_FILES, HPO_MAP = let files = readdir("/vcfs", join=true)
                 end
                 vcf = replace(vcf, r"\.gvcf(?:\.gz)?$" => "-converted.vcf")
                 terms = map(parsehpo, split(all_terms))
+                if !allunique(terms)
+                    dups = ["HP:" * lpad(t, 7, '0')
+                            for t in unique(terms) if sum(==(t), terms) > 1]
+                    @warn "Removing duplicates of HPO terms: $(join(dups, ", "))"
+                    terms = unique(terms)
+                end
                 mapping[vcf] = terms
             end
             mapping
