@@ -273,7 +273,7 @@ function process_vcf(vcf::String)
     good_preds = all_preds[:, good_selection] * baserescaled_mach_scores[good_selection]
     @info "$(sum(mach_scores .>= MIN_GOOD_SCORE)) / $(length(mach_scores)) models have a $MACH_SCORE score ≥ $MIN_GOOD_SCORE (and are considered 'good')"
     good_preds_df = select(resdf, :chromosome, :location, :ref, :alt, :ensembl_id, :gene_symbol, :gene_name)
-    good_preds_df.prediction = good_preds
+    good_preds_df.prediction = good_preds ./ sum(good_selection)
     CSV.write(joinpath("/predictions", basename(vcf), "wmean-good-prediction.csv"),
               good_preds_df)
 
