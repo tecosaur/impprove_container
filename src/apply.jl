@@ -110,6 +110,7 @@ end
 const MACH_SCORE = :πα⁻¹5000
 const MIN_GOOD_SCORE = 0.4
 const HEATMAP_TOPN = 50
+const HEATMAP_MAXN = 500
 const HGNC = d"HGNC"
 const HDESC = d"HPO descriptions"
 
@@ -258,8 +259,9 @@ function process_vcf(vcf::String)
                       yticks = (1:length(hpo_labels), hpo_labels),
                       xticklabelrotation = 1),
          pt_per_unit = 4.0)
-    save(joinpath("/predictions", basename(vcf), "all-preds.png"),
-         pred_headmap(all_preds[wsum_order, :], clust=false, base_score_inds = first.(base_models),
+    alln = min(size(resdf, 1), HEATMAP_MAXN)
+    save(joinpath("/predictions", basename(vcf), if alln == size(resdf, 1) "all-preds.png" else "top-$alln-preds.png" end),
+         pred_headmap(all_preds[wsum_order[1:alln], :], clust=false, base_score_inds = first.(base_models),
                       title = "Heatmap of predictions for $(basename(vcf))",
                       xlabel = "Variant",
                       xticks = (1:size(all_preds, 1), variant_labels[wsum_order]),
