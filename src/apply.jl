@@ -218,7 +218,7 @@ function process_vcf(vcf::String)
         impdf.model = labels[end-length(importances)+1:end]
         impdf′ = unstack(stack(impdf), :variable, :model, :value)
         sort!(impdf′, :variable)
-        CSV.write(joinpath("/predictions", basename(vcf), "$(last(split(labels[end])))-variable-importances.csv"),
+        CSV.write(joinpath("/predictions", basename(vcf), "$(first(split(labels[end])))-variable-importances.csv"),
                   impdf′)
     end
 
