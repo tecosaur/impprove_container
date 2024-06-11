@@ -248,7 +248,8 @@ function process_vcf(vcf::String)
         baserescaled_mach_scores[i] = baserescaled_mach_scores[i] ./
             -(reverse(extrema(filter(!isnan, all_preds[:, i])))...)
     end
-    wsum_order = sortperm(replace(all_preds, NaN => 0.0) * baserescaled_mach_scores, rev=true)
+    all_preds_nonan = replace(all_preds, NaN => 0.0)
+    wsum_order = sortperm(all_preds_nonan * baserescaled_mach_scores, rev=true)
     topn = min(size(resdf, 1), HEATMAP_TOPN)
     save(joinpath("/predictions", basename(vcf), "top-$topn-preds.png"),
          pred_headmap(all_preds[wsum_order[1:topn], :], clust=false, base_score_inds = first.(base_models),
@@ -272,10 +273,10 @@ function process_vcf(vcf::String)
 
     # Good mean
     good_selection = mach_scores .>= MIN_GOOD_SCORE
-    good_preds = all_preds[:, good_selection] * baserescaled_mach_scores[good_selection]
+    good_preds = all_preds_nonan[:, good_selection] * baserescaled_mach_scores[good_selection]
     @info "$(sum(mach_scores .>= MIN_GOOD_SCORE)) / $(length(mach_scores)) models have a $MACH_SCORE score ≥ $MIN_GOOD_SCORE (and are considered 'good')"
     good_preds_df = select(resdf, :chromosome, :location, :ref, :alt, :ensembl_id, :gene_symbol, :gene_name)
-    good_preds_df.prediction = good_preds ./ sum(good_selection)
+    good_preds_df.prediction = good_preds ./ vec(sum(!isnan, all_preds[:, good_selection], dims=2))
     CSV.write(joinpath("/predictions", basename(vcf), "wmean-good-prediction.csv"),
               good_preds_df)
 
