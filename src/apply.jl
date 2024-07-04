@@ -166,6 +166,7 @@ function process_vcf(vcf::String)
                        end,
                        Tables.namedtupleiterator(resdf))
     all_preds = fill(NaN, size(resdf, 1), length(hpos) * length(SETUP.modelsets[]))
+    all_pred_ranks = fill((0, 0, 0, 0), size(resdf, 1), length(hpos) * length(SETUP.modelsets[]))
     mach_scores = Float64[]
     base_models = Tuple{Int, Symbol}[]
     labels = String[]
@@ -209,6 +210,22 @@ function process_vcf(vcf::String)
                 end
                 resdf[!, labels[end]] = zeros(Float64, size(resdf, 1))
                 all_preds[res_rows, length(labels)] = resdf[res_rows, labels[end]] = preds
+                # Rankings
+                if !isnothing(mach[:machine])
+                    oob_predtrue = pdf.(mach[:machine].fitresult.oob.predicted, true)
+                    oob_ispatho = mach[:machine].fitresult.oob.actual
+                    oob_patho_preds = sort(oob_predtrue[oob_ispatho])
+                    oob_benign_preds = sort(oob_predtrue[.!oob_ispatho])
+                    pred_ranks = map(preds) do score
+                        p_index = searchsortedlast(oob_patho_preds, score)
+                        b_index = searchsortedlast(oob_benign_preds, score)
+                        # (tp, fn, tn, fp)
+                        (length(oob_patho_preds) - p_index,
+                        p_index, b_index,
+                        length(oob_benign_preds) - b_index)
+                    end
+                    all_pred_ranks[res_rows, length(labels)] = pred_ranks
+                end
             catch err
                 @error sprint(showerror, err)
             end
@@ -231,6 +248,21 @@ function process_vcf(vcf::String)
 
     CSV.write(joinpath("/predictions", basename(vcf), "all-predictions.csv"),
               resdf)
+
+    let confdf = DataFrame(:chromosome => String[], :location => Int[], :ref => Char[], :alt => Char[], :confusion => String[],
+                           map(l -> Symbol(l) => Int[], labels)...)
+       for (i, row) in enumerate(Tables.namedtupleiterator(resdf))
+           for (c, conftype) in enumerate(("tp", "fn", "tn", "fp"))
+               confrow = [row.chromosome, row.location, row.ref, row.alt, conftype]
+               for j in eachindex(labels)
+                   push!(confrow, all_pred_ranks[i, j][c])
+               end
+               push!(confdf, confrow)
+           end
+        end
+        CSV.write(joinpath("/predictions", basename(vcf), "confusion-matrices.csv"),
+                  confdf)
+    end
 
     CSV.write(joinpath("/predictions", basename(vcf), "model-scores.csv"),
               DataFrame("model" => labels,
