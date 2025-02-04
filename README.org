@@ -30,6 +30,9 @@ into this container.
 
 * Running the container image
 
+The container image along with the required data and models can be downloaded as
+an 84 GiB bundle from https://doi.org/10.26182/37wm-bz23.
+
 This container can be run with any docker-archive compatible software (e.g.
 docker, podman, apptainer). Here I will use =podman=.
 
